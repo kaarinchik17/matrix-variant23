@@ -1,0 +1,11 @@
+Package: matrix-variant23
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: gcc, make, libc6-dev
+Maintainer: kaarinchik17 <karunchik17@gmail.com>
+Description: Matrix program for variant 23
+ Program finds sum of elements on the main diagonal
+ and product on the secondary diagonal, then replaces
+ all other elements with their difference.
