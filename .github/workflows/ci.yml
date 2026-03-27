@@ -18,7 +18,7 @@ jobs:
           sudo apt update
           sudo apt install -y gcc make
       
-      - name: Запускаем сборку
+      - name:  Запускаем сборку
         run: |
           chmod +x cicd/build.sh
           ./cicd/build.sh
@@ -36,7 +36,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name:  Скачиваем код
+      - name: Скачиваем код
         uses: actions/checkout@v4
       
       - name:  Скачиваем результат сборки
@@ -50,7 +50,7 @@ jobs:
           chmod +x cicd/test.sh
           ./cicd/test.sh
       
-      - name: Передаём результат
+      - name:  Передаём результат
         uses: actions/upload-artifact@v4
         with:
           name: test-result
@@ -71,10 +71,10 @@ jobs:
         with:
           name: test-result
       
-      - name: Устанавливаем dpkg
+      - name:  Устанавливаем dpkg
         run: sudo apt install -y dpkg-dev
       
-      - name: Собираем deb-пакет
+      - name:  Собираем deb-пакет
         run: |
           chmod +x cicd/package.sh
           ./cicd/package.sh
@@ -99,20 +99,40 @@ jobs:
         with:
           name: deb-package
       
-      - name:  Устанавливаем Docker
+      - name:  Устанавливаем Docker (официальный способ)
         run: |
-          sudo apt update
-          sudo apt install -y docker.io
+          # Удаляем старые версии
+          sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
+          
+          # Устанавливаем зависимости
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl
+          
+          # Добавляем официальный ключ Docker
+          sudo install -m 0755 -d /etc/apt/keyrings
+          sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          sudo chmod a+r /etc/apt/keyrings/docker.asc
+          
+          # Добавляем репозиторий Docker
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          
+          # Устанавливаем Docker
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          
+          # Проверяем установку
+          docker --version
       
       - name:  Собираем Docker-образ
         run: docker build -t matrix-variant23:latest .
       
-      - name: 🧪 Тестируем Docker-образ
-        run: |
-          chmod +x cicd/docker-test.sh
-          ./cicd/docker-test.sh
+      - name:  Проверяем, что образ создан
+        run: docker images | grep matrix-variant23
       
-      - name: Сохраняем Docker-образ
+      - name:  Тестируем Docker-образ
+        run: docker run --rm matrix-variant23:latest 3
+      
+      - name:  Сохраняем Docker-образ
         run: |
           docker save matrix-variant23:latest -o matrix-variant23-image.tar
           gzip matrix-variant23-image.tar
