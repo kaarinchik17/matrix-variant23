@@ -3,22 +3,27 @@ echo "==================================="
 echo "НАЧИНАЕМ СБОРКУ ПРОГРАММЫ"
 echo "==================================="
 
-# Переходим в папку с исходниками
 cd src
-
-# Очищаем предыдущую сборку
 make clean
-
-# Собираем программу
 make
 
-# Проверяем, создался ли файл matrix
 if [ -f matrix ]; then
-    echo " СБОРКА УСПЕШНА! Файл matrix создан"
+    echo " СБОРКА УСПЕШНА!"
     
-    # Создаём нужные папки и копируем туда программу
+    # Создаём нужные папки
     mkdir -p ../usr/local/bin
+    mkdir -p ../DEBIAN
+    
+    # Копируем программу
     cp matrix ../usr/local/bin/
+    
+    # Копируем control файл, если он существует
+    if [ -f ../DEBIAN/control ]; then
+        cp ../DEBIAN/control ../DEBIAN/control.bak 2>/dev/null
+    fi
+    
+    # Даём права на выполнение
+    chmod +x ../usr/local/bin/matrix
     
     echo " Программа скопирована в usr/local/bin/matrix"
     exit 0
