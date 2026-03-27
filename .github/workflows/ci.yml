@@ -1,14 +1,125 @@
-GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name:  Скачиваем код
+        uses: actions/checkout@v4
       
-      - name: 🚀 Публикуем образ в GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name:  Устанавливаем компилятор
         run: |
-          IMAGE_ID=ghcr.io/${{ github.repository_owner }}/matrix-variant23
-          IMAGE_ID=$(echo $IMAGE_ID | tr '[:upper:]' '[:lower:]')
-          docker tag matrix-variant23:latest $IMAGE_ID:latest
-          docker push $IMAGE_ID:latest
-          docker tag matrix-variant23:latest $IMAGE_ID:${{ github.sha }}
-          docker push $IMAGE_ID:${{ github.sha }}
-          echo "✅ Образ опубликован: $IMAGE_ID:latest"
+          sudo apt update
+          sudo apt install -y gcc make
+      
+      - name: Запускаем сборку
+        run: |
+          chmod +x cicd/build.sh
+          ./cicd/build.sh
+      
+      - name:  Сохраняем результат
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-result
+          path: |
+            usr/local/bin/matrix
+            DEBIAN/
+          retention-days: 1
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name:  Скачиваем код
+        uses: actions/checkout@v4
+      
+      - name:  Скачиваем результат сборки
+        uses: actions/download-artifact@v4
+        with:
+          name: build-result
+      
+      - name:  Запускаем тесты
+        run: |
+          chmod +x usr/local/bin/matrix
+          chmod +x cicd/test.sh
+          ./cicd/test.sh
+      
+      - name: Передаём результат
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-result
+          path: |
+            usr/local/bin/matrix
+            DEBIAN/
+          retention-days: 1
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name:  Скачиваем код
+        uses: actions/checkout@v4
+      
+      - name:  Скачиваем результат тестов
+        uses: actions/download-artifact@v4
+        with:
+          name: test-result
+      
+      - name: Устанавливаем dpkg
+        run: sudo apt install -y dpkg-dev
+      
+      - name: Собираем deb-пакет
+        run: |
+          chmod +x cicd/package.sh
+          ./cicd/package.sh
+      
+      - name:  Сохраняем пакет
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: "*.deb"
+          retention-days: 7
+
+  deploy:
+    needs: package
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name:  Скачиваем код
+        uses: actions/checkout@v4
+      
+      - name:  Скачиваем deb-пакет
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-package
+      
+      - name:  Устанавливаем Docker
+        run: |
+          sudo apt update
+          sudo apt install -y docker.io
+      
+      - name:  Собираем Docker-образ
+        run: docker build -t matrix-variant23:latest .
+      
+      - name: 🧪 Тестируем Docker-образ
+        run: |
+          chmod +x cicd/docker-test.sh
+          ./cicd/docker-test.sh
+      
+      - name: Сохраняем Docker-образ
+        run: |
+          docker save matrix-variant23:latest -o matrix-variant23-image.tar
+          gzip matrix-variant23-image.tar
+      
+      - name:  Загружаем Docker-образ
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: matrix-variant23-image.tar.gz
+          retention-days: 7
