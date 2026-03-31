@@ -3,27 +3,30 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
 
 jobs:
+
   build:
     runs-on: ubuntu-latest
     steps:
-      - name:  Скачиваем код
+      - name: Download code
         uses: actions/checkout@v4
       
-      - name:  Устанавливаем компилятор
+      - name: Install compiler
         run: |
           sudo apt update
           sudo apt install -y gcc make
       
-      - name:  Запускаем сборку
+      - name: Run build
         run: |
           chmod +x cicd/build.sh
           ./cicd/build.sh
       
-      - name:  Сохраняем результат
+      - name: Save build result
         uses: actions/upload-artifact@v4
         with:
           name: build-result
@@ -36,21 +39,21 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Скачиваем код
+      - name: Download code
         uses: actions/checkout@v4
       
-      - name:  Скачиваем результат сборки
+      - name: Download build result
         uses: actions/download-artifact@v4
         with:
           name: build-result
       
-      - name:  Запускаем тесты
+      - name: Run tests
         run: |
           chmod +x usr/local/bin/matrix
           chmod +x cicd/test.sh
           ./cicd/test.sh
       
-      - name:  Передаём результат
+      - name: Pass test result
         uses: actions/upload-artifact@v4
         with:
           name: test-result
@@ -63,23 +66,23 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - name:  Скачиваем код
+      - name: Download code
         uses: actions/checkout@v4
       
-      - name:  Скачиваем результат тестов
+      - name: Download test result
         uses: actions/download-artifact@v4
         with:
           name: test-result
       
-      - name:  Устанавливаем dpkg
+      - name: Install dpkg
         run: sudo apt install -y dpkg-dev
       
-      - name:  Собираем deb-пакет
+      - name: Build deb package
         run: |
           chmod +x cicd/package.sh
           ./cicd/package.sh
       
-      - name:  Сохраняем пакет
+      - name: Save deb package
         uses: actions/upload-artifact@v4
         with:
           name: deb-package
@@ -91,55 +94,94 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name:  Скачиваем код
+      - name: Download code
         uses: actions/checkout@v4
       
-      - name:  Скачиваем deb-пакет
+      - name: Download deb package
         uses: actions/download-artifact@v4
         with:
           name: deb-package
       
-      - name:  Устанавливаем Docker (официальный способ)
+      - name: Install Docker
         run: |
-          # Удаляем старые версии
           sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-          
-          # Устанавливаем зависимости
           sudo apt-get update
           sudo apt-get install -y ca-certificates curl
-          
-          # Добавляем официальный ключ Docker
           sudo install -m 0755 -d /etc/apt/keyrings
           sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
           sudo chmod a+r /etc/apt/keyrings/docker.asc
-          
-          # Добавляем репозиторий Docker
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-          
-          # Устанавливаем Docker
           sudo apt-get update
           sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-          
-          # Проверяем установку
           docker --version
       
-      - name:  Собираем Docker-образ
+      - name: Build Docker image
         run: docker build -t matrix-variant23:latest .
       
-      - name:  Проверяем, что образ создан
+      - name: Check Docker image
         run: docker images | grep matrix-variant23
       
-      - name:  Тестируем Docker-образ
+      - name: Test Docker image
         run: docker run --rm matrix-variant23:latest 3
       
-      - name:  Сохраняем Docker-образ
+      - name: Save Docker image
         run: |
           docker save matrix-variant23:latest -o matrix-variant23-image.tar
           gzip matrix-variant23-image.tar
       
-      - name:  Загружаем Docker-образ
+      - name: Upload Docker image
         uses: actions/upload-artifact@v4
         with:
           name: docker-image
           path: matrix-variant23-image.tar.gz
           retention-days: 7
+
+  release:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download deb package
+        uses: actions/download-artifact@v4
+with:
+          name: deb-package
+      
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+      
+      - name: List files for release
+        run: ls -la
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            *.deb
+            *.tar.gz
+          name: Release ${{ github.ref_name }}
+          body: |
+            Release ${{ github.ref_name }}
+            
+            Files for download:
+            - matrix-variant23.deb - deb package for Ubuntu
+            - matrix-variant23-image.tar.gz - Docker image
+            
+            How to install and run:
+            
+            Method 1: deb package
+            sudo dpkg -i matrix-variant23.deb
+            matrix 5
+            
+            Method 2: Docker
+            docker load -i matrix-variant23-image.tar.gz
+            docker run --rm matrix-variant23:latest 5
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
